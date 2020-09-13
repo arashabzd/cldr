@@ -11,6 +11,7 @@ disentanglement_lib.evaluation.evaluate = evaluate
 def compute_metrics(model_dir, 
                     output_dir,
                     dataset_name,
+                    cuda=False,
                     metrics=None, 
                     overwrite=True):
     _study = unsupervised_study_v1.UnsupervisedStudyV1()
@@ -39,11 +40,13 @@ def compute_metrics(model_dir,
         bindings = [
             "evaluation.random_seed = {}".format(0),
             "evaluation.name = '{}'".format(metric)
-        ]                        
+        ]
+        metric_dir = os.path.join(output_dir, metric)
         evaluate.evaluate_with_gin(
             model_dir,
-            output_dir,
+            metric_dir,
             dataset_name,
+            cuda,
             overwrite,
             [gin_eval_config],
             bindings

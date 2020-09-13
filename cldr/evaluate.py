@@ -25,10 +25,11 @@ import utils
 from tensorflow.python.framework.errors_impl import NotFoundError
 
 
-def evaluate_with_gin(model_dir,
+def evaluate_with_gin(model_path,
                       output_dir,
                       dataset_name,
-                      overwrite=False,
+                      cuda,
+                      overwrite,
                       gin_config_files=None,
                       gin_bindings=None):
     """Evaluate a representation based on the provided gin configuration.
@@ -49,31 +50,21 @@ def evaluate_with_gin(model_dir,
     if gin_bindings is None:
         gin_bindings = []
     gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
-    evaluate(model_dir, output_dir, dataset_name, overwrite)
+    evaluate(model_path, output_dir, dataset_name, cuda, overwrite)
     gin.clear_config()
 
 
 @gin.configurable(
-    "evaluation", blacklist=["model_dir", "output_dir", "dataset_name", "overwrite"])
-def evaluate(model_dir,
+    "evaluation", blacklist=["model_path", "output_dir", "dataset_name", "cuda", "overwrite"])
+def evaluate(model_path,
              output_dir,
              dataset_name,
-             overwrite=False,
+             cuda,
+             overwrite,
              evaluation_fn=gin.REQUIRED,
              random_seed=gin.REQUIRED,
              name=""):
-    """Loads a representation TFHub module and computes disentanglement metrics.
 
-    Args:
-      model_dir: String with path to directory where the representation function
-        is saved.
-      output_dir: String with the path where the results should be saved.
-      overwrite: Boolean indicating whether to overwrite output directory.
-      evaluation_fn: Function used to evaluate the representation (see metrics/
-        for examples).
-      random_seed: Integer with random seed used for training.
-      name: Optional string with name of the metric (can be used to name metrics).
-    """
     if tf.gfile.IsDirectory(output_dir):
         if overwrite:
             tf.gfile.DeleteRecursively(output_dir)
@@ -86,24 +77,19 @@ def evaluate(model_dir,
     dataset = named_data.get_named_ground_truth_data()
 
     experiment_timer = time.time()
-    if os.path.exists(os.path.join(model_dir, 'model.pt')):
-        model_path = os.path.join(model_dir, 'model.pt')
+    if os.path.exists(model_path):
         results_dict = _evaluate_with_pytorch(model_path, evaluation_fn,
-                                              dataset, random_seed)
+                                              dataset, cuda, random_seed)
     else:
         raise RuntimeError("`model_dir` must contain either a pytorch or a TFHub model.")
 
-    # Save the results (and all previous results in the pipeline) on disk.
-    original_results_dir = os.path.join(model_dir, "results")
-    results_dir = os.path.join(output_dir, "results")
     results_dict["elapsed_time"] = time.time() - experiment_timer
-    results.update_result_directory(results_dir, "evaluation", results_dict,
-                                    original_results_dir)
+    results.update_result_directory(output_dir, "evaluation", results_dict)
 
 
-def _evaluate_with_pytorch(model_path, evalulation_fn, dataset, random_seed):
+def _evaluate_with_pytorch(model_path, evalulation_fn, dataset, cuda, random_seed):
     model = utils.import_model(model_path)
-    _representation_function = utils.make_representor(model)
+    _representation_function = utils.make_representor(model, cuda)
     results_dict = evalulation_fn(
         dataset,
         _representation_function,
