@@ -7,14 +7,6 @@ import torch
 from torch.jit import trace
 from torch.utils.data.dataset import Dataset
 from torch.utils.data.dataloader import DataLoader
-
-
-os.environ.update(
-    {
-        'DISENTANGLEMENT_LIB_DATA':
-        str(Path(__file__).absolute().parent.parent/'data')
-    }
-)
 from disentanglement_lib.data.ground_truth.named_data import get_named_ground_truth_data
 
 

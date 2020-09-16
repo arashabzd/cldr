@@ -1,7 +1,6 @@
 # this code is borrowed from 
 # https://github.com/AIcrowd/neurips2019_disentanglement_challenge_starter_kit/blob/master/evaluate.py
 
-"""Evaluation protocol to compute metrics."""
 import os
 import time
 
@@ -21,7 +20,7 @@ import numpy as np
 import tensorflow as tf
 import gin.tf
 
-import utils
+from ..utils import utils
 from tensorflow.python.framework.errors_impl import NotFoundError
 
 
@@ -32,19 +31,6 @@ def evaluate_with_gin(model_path,
                       overwrite,
                       gin_config_files=None,
                       gin_bindings=None):
-    """Evaluate a representation based on the provided gin configuration.
-
-    This function will set the provided gin bindings, call the evaluate()
-    function and clear the gin config. Please see the evaluate() for required
-    gin bindings.
-
-    Args:
-      model_dir: String with path to directory where the representation is saved.
-      output_dir: String with the path where the evaluation should be saved.
-      overwrite: Boolean indicating whether to overwrite output directory.
-      gin_config_files: List of gin config files to load.
-      gin_bindings: List of gin bindings to use.
-    """
     if gin_config_files is None:
         gin_config_files = []
     if gin_bindings is None:
