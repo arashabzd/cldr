@@ -7,20 +7,15 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 from pytorch_metric_learning import distances, miners, losses
 
-from .models import DlibModel
+from .models import DeterministicModel
+from .evaluation import compute_metrics
 from .utils import utils
 
 
 def train(args):
-    results_dir = pathlib.Path('./results/')/args.experiment/args.model/args.dataset
-    logs_dir = results_dir/'logs'
-    models_dir = results_dir/'saved_models'
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    models_dir.mkdir(parents=True, exist_ok=True)
-    
     torch.manual_seed(args.seed)
     device = torch.device("cuda" if args.cuda else "cpu")
-    writer = SummaryWriter(log_dir=str(logs_dir))
+    writer = SummaryWriter(log_dir=str(log_dir))
     
     jitter = .5
     dataloader = utils.get_loader(args.dataset, batch_size=args.batch_size, seed=args.seed)
@@ -39,8 +34,8 @@ def train(args):
     )
     augment = utils.BatchTransform(augment)
     
-    if args.model == 'dlib':
-        model = DlibModel(3).to(device)
+    if args.model == 'deterministic':
+        model = DeterministicModel().to(device)
     
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
     distance = distances.CosineSimilarity()
@@ -53,13 +48,16 @@ def train(args):
             optimizer.zero_grad()
             x1 = augment(x).to(device)
             x2 = augment(x).to(device)
-            z1 = model(x1)
-            z2 = model(x2)
+            z1 = model.project(x1)
+            z2 = model.project(x2)
             z = torch.cat([z1, z2], dim=0)
             y = torch.arange(z1.shape[0])
             y = torch.cat([y, y], dim=0)
             pairs = miner(z, y)
-            loss = ntxent(z, y, pairs)
+            if args.use_miner:
+                loss = ntxent(z, y, pairs)
+            else:
+                loss = ntxent(z, y)
             loss.backward()
             optimizer.step()
             step += 1
@@ -72,65 +70,78 @@ def train(args):
                 loss.item()
                 ))
                 writer.add_scalar('Loss', loss.item(), global_step=step)
-                writer.add_scalar('Positive Samples Pairs', pairs[0].shape[0], global_step=step)
-                writer.add_scalar('Negative Samples Paris', pairs[2].shape[0], global_step=step)
+                writer.add_scalar('Hard Positive Pairs', pairs[0].shape[0], global_step=step)
+                writer.add_scalar('Hard Negative Paris', pairs[2].shape[0], global_step=step)
             
             if step >= args.steps: 
                 break
     
-    utils.export_model(model, str(models_dir/'model.pt'))
+    utils.export_model(model, str(model_dir/'model.pt'))
 
-    
+
 def evaluate(args):
-    pass
+    model_path = model_dir/'model.pt'
+    compute_metrics(model_path=str(model_path), 
+                    output_dir=str(evaluation_dir), 
+                    dataset_name=args.dataset, 
+                    cuda=args.cuda, 
+                    seed=args.seed)
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description='Contrastive Learning of Disentangled Representations (CLDR)'
-    )
-    subparsers = parser.add_subparsers(
-        help=''
-    )
-    train_parser = subparsers.add_parser(
-        'train',
-        help='Train a model.'
-    )
-    train_parser.add_argument('--experiment', 
-                              type=str, default='default', 
-                              help='Experiment name (default="default").')
-    train_parser.add_argument('--model', 
-                              type=str, default='dlib', 
-                              help='Model name (default="dlib").')
-    train_parser.add_argument('--dataset', 
-                              type=str, default='cars3d', 
-                              help='Dataset name (default="cars3d").')
-    train_parser.add_argument('--batch-size',  
-                              type=int, default=64, 
-                              help='Batch size (default=64).')
-    train_parser.add_argument('--steps',  
-                              type=int, default=10000, 
-                              help='Number of training steps (iterations) (default=10000).')
-    train_parser.add_argument('--cuda',
-                              action='store_true', default=False,
-                              help='Enable CUDA training.')
-    train_parser.add_argument('--seed', 
-                              type=int, default=0,
-                              help='Random seed (default: 0).')
-    train_parser.add_argument('--log-interval', 
-                              type=int, default=1,
-                              help='Tensorboard log interval (default: 1).')
-    train_parser.set_defaults(func=train)
+parser = argparse.ArgumentParser(
+    description='Contrastive Learning of Disentangled Representations (CLDR)'
+)
+parser.add_argument('--experiment', 
+                    type=str, default='default', 
+                    help='Experiment name (default: "default").')
+parser.add_argument('--model', 
+                    type=str, default='deterministic', 
+                    help='Model name (default: "deterministic").')
+parser.add_argument('--dataset', 
+                    type=str, default='cars3d', 
+                    help='Dataset name (default: "cars3d").')
+parser.add_argument('--cuda',
+                    action='store_true', default=False,
+                    help='Enable CUDA.')
+parser.add_argument('--seed', 
+                    type=int, default=0,
+                    help='Random seed (default: 0).')
 
-    eval_parser = subparsers.add_parser(
-        'evaluate',
-        help='Evaluate a model.'
-    )
-    eval_parser.set_defaults(func=evaluate)
-    
-    args = parser.parse_args()
-    args.func(args)
+subparsers = parser.add_subparsers(
+    help=''
+)
+train_parser = subparsers.add_parser(
+    'train',
+    help='Train a model.'
+)
+train_parser.add_argument('--batch-size',  
+                          type=int, default=64, 
+                          help='Batch size (default: 64).')
+train_parser.add_argument('--steps',  
+                          type=int, default=10000, 
+                          help='Number of training steps (iterations) (default: 10000).')
+train_parser.add_argument('--use-miner',
+                          action='store_true', default=False,
+                          help='Enable using MultiSimilarityMiner')
+train_parser.add_argument('--log-interval', 
+                          type=int, default=1,
+                          help='Tensorboard log interval (default: 1).')
+train_parser.set_defaults(func=train)
+
+eval_parser = subparsers.add_parser(
+    'evaluate',
+    help='Evaluate a model.'
+)
+eval_parser.set_defaults(func=evaluate)
 
 
 if __name__ == '__main__':
-    main()
+    args = parser.parse_args()
+    result_dir = pathlib.Path('./results/')/args.experiment/args.model/args.dataset
+    log_dir = result_dir/'log'
+    model_dir = result_dir/'saved_model'
+    evaluation_dir = result_dir/'evaluation'
+    log_dir.mkdir(parents=True, exist_ok=True)
+    model_dir.mkdir(parents=True, exist_ok=True)
+    evaluation_dir.mkdir(parents=True, exist_ok=True)
+    args.func(args)

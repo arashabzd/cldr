@@ -24,7 +24,7 @@ def compute_metrics(model_path,
             'beta_vae_sklearn'
             'dci',
             'downstream_task_boosted_trees',
-            'downstream_task_logistic_regression',
+#             'downstream_task_logistic_regression',
             'factor_vae_metric',
             'irs',
             'mig',

@@ -4,10 +4,10 @@ from .utils import kaiming_init, normal_init
 
 
 class Convnet(nn.Module):
-    def __init__(self, in_channels, bn=False, init_mode='kaiming'):
+    def __init__(self, bn=False, init_mode='kaiming'):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(in_channels, 32, 4, 2, 1, bias=not bn),
+            nn.Conv2d(3, 32, 4, 2, 1, bias=not bn),
             nn.BatchNorm2d(32) if bn else nn.Identity(),
             nn.ReLU(True),
             nn.Conv2d(32, 32, 4, 2, 1, bias=not bn),
@@ -24,7 +24,8 @@ class Convnet(nn.Module):
             nn.ReLU(True),
             nn.Flatten(),
             nn.Linear(256, 256),
-            nn.BatchNorm1d(256) if bn else nn.Identity()
+            nn.BatchNorm1d(256) if bn else nn.Identity(),
+            nn.ReLU(True)
         )
         
         self.weight_init(init_mode)

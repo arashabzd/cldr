@@ -1,1 +1,1 @@
-from .dlib import DlibModel
+from .deterministic import DeterministicModel
