@@ -21,7 +21,7 @@ def compute_metrics(model_path,
     
     if metrics is None:
         metrics = [
-            'beta_vae_sklearn'
+            'beta_vae_sklearn',
             'dci',
             'downstream_task_boosted_trees',
 #             'downstream_task_logistic_regression',

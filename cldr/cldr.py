@@ -80,12 +80,14 @@ def train(args):
 
 
 def evaluate(args):
+    args.metrics = None if args.metrics == '' else args.metrics.split()
     model_path = model_dir/'model.pt'
     compute_metrics(model_path=str(model_path), 
                     output_dir=str(evaluation_dir), 
                     dataset_name=args.dataset, 
                     cuda=args.cuda, 
-                    seed=args.seed)
+                    seed=args.seed,
+                    metrics=args.metrics)
 
 
 parser = argparse.ArgumentParser(
@@ -132,6 +134,9 @@ eval_parser = subparsers.add_parser(
     'evaluate',
     help='Evaluate a model.'
 )
+eval_parser.add_argument('--metrics', 
+                         type=str, default='', 
+                         help='List of metrics (default: All available metrics).')
 eval_parser.set_defaults(func=evaluate)
 
 
