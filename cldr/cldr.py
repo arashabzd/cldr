@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 from pytorch_metric_learning import distances, miners, losses
 
-from .models import DeterministicModel
+from .models import DeterministicModel, Deterministic2DModel
 from .evaluation import compute_metrics
 from .utils import utils
 
@@ -36,6 +36,8 @@ def train(args):
     
     if args.model == 'deterministic':
         model = DeterministicModel().to(device)
+    elif args.model == 'deterministic2d':
+        model = Deterministic2DModel().to(device)
     
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
     distance = distances.CosineSimilarity()
@@ -120,8 +122,8 @@ train_parser.add_argument('--batch-size',
                           type=int, default=64, 
                           help='Batch size (default: 64).')
 train_parser.add_argument('--steps',  
-                          type=int, default=10000, 
-                          help='Number of training steps (iterations) (default: 10000).')
+                          type=int, default=100000, 
+                          help='Number of training steps (iterations) (default: 100000).')
 train_parser.add_argument('--use-miner',
                           action='store_true', default=False,
                           help='Enable using MultiSimilarityMiner')
