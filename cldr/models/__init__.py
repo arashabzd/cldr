@@ -1,1 +1,1 @@
-from .deterministic import DeterministicModel, Deterministic2DModel
+from .deterministic import DeterministicModel

@@ -1,5 +1,6 @@
 import argparse
 import pathlib
+import numpy as np
 
 import torch
 from torch import nn, optim
@@ -7,18 +8,19 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 from pytorch_metric_learning import distances, miners, losses
 
-from .models import DeterministicModel, Deterministic2DModel
+from .models import DeterministicModel
 from .evaluation import compute_metrics
 from .utils import utils
 
+import tensorflow as tf
+import tensorboard as tb
+tf.io.gfile = tb.compat.tensorflow_stub.io.gfile
+
 
 def train(args):
-    torch.manual_seed(args.seed)
-    device = torch.device("cuda" if args.cuda else "cpu")
-    writer = SummaryWriter(log_dir=str(log_dir))
+    dataloader = utils.get_loader(args.dataset, batch_size=args.batch_size, seed=args.seed)
     
     jitter = .5
-    dataloader = utils.get_loader(args.dataset, batch_size=args.batch_size, seed=args.seed)
     color_jitter = transforms.ColorJitter(.8*jitter, .8*jitter, .8*jitter, .2*jitter)
     rnd_color_jitter = transforms.RandomApply([color_jitter], p=0.8)
     rnd_gray = transforms.RandomGrayscale(p=0.2)
@@ -36,8 +38,7 @@ def train(args):
     
     if args.model == 'deterministic':
         model = DeterministicModel().to(device)
-    elif args.model == 'deterministic2d':
-        model = Deterministic2DModel().to(device)
+    model.train()
     
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
     distance = distances.CosineSimilarity()
@@ -46,14 +47,17 @@ def train(args):
     
     step = 0
     while step < args.steps:
-        for x in dataloader:
+        for x, y in dataloader:
             optimizer.zero_grad()
             x1 = augment(x).to(device)
             x2 = augment(x).to(device)
             z1 = model.project(x1)
             z2 = model.project(x2)
             z = torch.cat([z1, z2], dim=0)
-            y = torch.arange(z1.shape[0])
+            if args.supervise > -1:
+                y = y[:, args.supervise]
+            else:
+                y = torch.arange(z1.shape[0])
             y = torch.cat([y, y], dim=0)
             pairs = miner(z, y)
             if args.use_miner:
@@ -74,22 +78,38 @@ def train(args):
                 writer.add_scalar('Loss', loss.item(), global_step=step)
                 writer.add_scalar('Hard Positive Pairs', pairs[0].shape[0], global_step=step)
                 writer.add_scalar('Hard Negative Paris', pairs[2].shape[0], global_step=step)
+                writer.flush()
             
             if step >= args.steps: 
                 break
     
-    utils.export_model(model, str(model_dir/'model.pt'))
+    utils.export_model(model, model_path)
 
 
 def evaluate(args):
     args.metrics = None if args.metrics == '' else args.metrics.split()
-    model_path = model_dir/'model.pt'
-    compute_metrics(model_path=str(model_path), 
-                    output_dir=str(evaluation_dir), 
+    compute_metrics(model_path=model_path, 
+                    output_dir=evaluation_dir, 
                     dataset_name=args.dataset, 
                     cuda=args.cuda, 
                     seed=args.seed,
                     metrics=args.metrics)
+    
+
+def visualize(args):
+    dataset = utils.DLIBDataset(args.dataset, seed=args.seed)
+    model = utils.import_model(model_path).to(device)
+    y, x = dataset.dataset.sample(args.sample_size, random_state=dataset.random_state)
+    x = torch.from_numpy(np.moveaxis(x, 3, 1))
+    with torch.no_grad():
+        r = model(x.to(device))
+    writer.add_embedding(
+        r,
+        metadata=[zi for zi in z[:, args.label_factor]],
+        label_img=x,
+    )
+    writer.flush()
+    
 
 
 parser = argparse.ArgumentParser(
@@ -127,6 +147,9 @@ train_parser.add_argument('--steps',
 train_parser.add_argument('--use-miner',
                           action='store_true', default=False,
                           help='Enable using MultiSimilarityMiner')
+train_parser.add_argument('--supervise', 
+                          type=int, default=-1,
+                          help='Factor used for supervision (default: -1).')
 train_parser.add_argument('--log-interval', 
                           type=int, default=1,
                           help='Tensorboard log interval (default: 1).')
@@ -141,6 +164,17 @@ eval_parser.add_argument('--metrics',
                          help='List of metrics (default: All available metrics).')
 eval_parser.set_defaults(func=evaluate)
 
+vis_parser = subparsers.add_parser(
+    'visualize',
+    help='Make a visualization of model representations in tensorboard.'
+)
+vis_parser.add_argument('--sample-size',  
+                        type=int, default=200, 
+                        help='Sample size (default: 200).')
+vis_parser.add_argument('--label_factor',  
+                        type=int, default=0, 
+                        help='Factor used as label (default: 0).')
+vis_parser.set_defaults(func=visualize)
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -151,4 +185,13 @@ if __name__ == '__main__':
     log_dir.mkdir(parents=True, exist_ok=True)
     model_dir.mkdir(parents=True, exist_ok=True)
     evaluation_dir.mkdir(parents=True, exist_ok=True)
+    
+    log_dir = str(log_dir)
+    evaluation_dir = str(evaluation_dir)
+    model_path = str(model_dir/'model.pt')
+    
+    torch.manual_seed(args.seed)
+    device = torch.device("cuda" if args.cuda else "cpu")
+    writer = SummaryWriter(log_dir=log_dir)
+    
     args.func(args)

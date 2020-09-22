@@ -150,9 +150,11 @@ class DLIBDataset(Dataset):
 
     def __getitem__(self, item):
         assert item < self.iterator_len
-        output = self.dataset.sample_observations(1, random_state=self.random_state)[0]
+        y, x = self.dataset.sample(1, random_state=self.random_state)
         # Convert output to CHW from HWC
-        return torch.from_numpy(np.moveaxis(output, 2, 0))
+        x = torch.from_numpy(np.moveaxis(x[0], 2, 0))
+        y = torch.from_numpy(y)[0]
+        return x, y
 
 
 def get_loader(name, batch_size=64, seed=0, iterator_len=50000, num_workers=0,
