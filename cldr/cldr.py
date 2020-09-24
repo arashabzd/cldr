@@ -9,6 +9,7 @@ from torchvision import transforms
 from pytorch_metric_learning import distances, miners, losses
 
 from .models import DeterministicModel
+from .models import GaussianModel
 from .evaluation import compute_metrics
 from .utils import utils
 
@@ -36,6 +37,8 @@ def train(args):
     print(f'Initializing model: {args.model}')
     if args.model == 'deterministic':
         model = DeterministicModel().to(device)
+    elif args.model == 'gaussian':
+        model = GaussianModel().to(device)
     model.train()
     
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
