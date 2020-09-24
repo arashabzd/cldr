@@ -12,12 +12,9 @@ from .models import DeterministicModel
 from .evaluation import compute_metrics
 from .utils import utils
 
-import tensorflow as tf
-import tensorboard as tb
-tf.io.gfile = tb.compat.tensorflow_stub.io.gfile
-
 
 def train(args):
+    print(f'Loading dataset: {args.dataset}')
     dataloader = utils.get_loader(args.dataset, batch_size=args.batch_size, seed=args.seed)
     
     jitter = .5
@@ -36,6 +33,7 @@ def train(args):
     )
     augment = utils.BatchTransform(augment)
     
+    print(f'Initializing model: {args.model}')
     if args.model == 'deterministic':
         model = DeterministicModel().to(device)
     model.train()
@@ -45,6 +43,7 @@ def train(args):
     miner = miners.MultiSimilarityMiner(epsilon=.1, distance=distance)
     ntxent = losses.NTXentLoss(temperature=.5, distance=distance)
     
+    print('Training model')
     step = 0
     while step < args.steps:
         for x, y in dataloader:
@@ -83,6 +82,7 @@ def train(args):
             if step >= args.steps: 
                 break
     
+    print('Exporting model')
     utils.export_model(model, model_path)
 
 
@@ -149,7 +149,7 @@ train_parser.add_argument('--use-miner',
                           help='Enable using MultiSimilarityMiner')
 train_parser.add_argument('--supervise', 
                           type=int, default=-1,
-                          help='Factor used for supervision (default: -1).')
+                          help='Factor used for supervision (default: Unsupervised).')
 train_parser.add_argument('--log-interval', 
                           type=int, default=1,
                           help='Tensorboard log interval (default: 1).')

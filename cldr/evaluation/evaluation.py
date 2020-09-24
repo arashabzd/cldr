@@ -1,6 +1,10 @@
 # this code is borrowed from 
 # https://github.com/AIcrowd/neurips2019_disentanglement_challenge_starter_kit/blob/master/local_evaluation.py
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import os
 import disentanglement_lib
 from disentanglement_lib.config.unsupervised_study_v1 import sweep as unsupervised_study_v1
@@ -24,7 +28,7 @@ def compute_metrics(model_path,
             'beta_vae_sklearn',
             'dci',
             'downstream_task_boosted_trees',
-#             'downstream_task_logistic_regression',
+            'downstream_task_logistic_regression',
             'factor_vae_metric',
             'irs',
             'mig',
