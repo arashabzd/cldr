@@ -15,9 +15,8 @@ class GaussianModel(nn.Module):
         self.p = MLP(10, [10], 10)
     
     def reparametrize(self, mean, logvar):
-        device = self.mean.bias.device
         std = torch.exp(0.5*logvar)
-        eps = torch.randn_like(std, device=device)
+        eps = torch.randn_like(std)
         return mean + eps * std
     
     def forward(self, x):
