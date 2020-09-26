@@ -3,7 +3,6 @@ from torch import nn
 
 from ..nets.conv import Convnet
 from ..nets.mlp import MLP
-from ..utils import utils
 
 
 class GaussianModel(nn.Module):
