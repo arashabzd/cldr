@@ -42,7 +42,7 @@ def export_model(model, path, input_shape=(1, 3, 64, 64), use_script_module=True
         if not isinstance(model, torch.jit.ScriptModule):
             assert input_shape is not None, "`input_shape` must be provided since model is not a " \
                                             "`ScriptModule`."
-            traced_model = trace(model, torch.zeros(*input_shape))
+            traced_model = trace(model, torch.zeros(*input_shape), check_trace=False)
         else:
             traced_model = model
         torch.jit.save(traced_model, path)
@@ -186,6 +186,10 @@ def get_loader(name, batch_size=64, seed=0, iterator_len=50000, num_workers=0,
                         num_workers=num_workers, **dataloader_kwargs)
     return loader
 
+def permute_latent(z):
+    B, D = z.size()
+    inds = torch.cat([(D*i) + torch.randperm(D) for i in range(B)])
+    return z.view(-1)[inds].view(B, D)
 
 class BatchTransform:
     def __init__(self, transform):

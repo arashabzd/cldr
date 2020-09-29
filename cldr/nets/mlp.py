@@ -1,5 +1,5 @@
 import torch
-from torch import nn
+import torch.nn as nn
 from .utils import kaiming_init, normal_init
 
 

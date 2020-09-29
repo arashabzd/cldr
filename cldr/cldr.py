@@ -3,13 +3,16 @@ import pathlib
 import numpy as np
 
 import torch
-from torch import nn, optim
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 from pytorch_metric_learning import distances, miners, losses
 
 from .models import DeterministicModel
 from .models import GaussianModel
+from .models import Discriminator
 from .evaluation import compute_metrics
 from .utils import utils
 
@@ -46,28 +49,51 @@ def train(args):
     miner = miners.MultiSimilarityMiner(epsilon=.1, distance=distance)
     ntxent = losses.NTXentLoss(temperature=.5, distance=distance)
     
+    if args.tc > 0:
+        discriminator = Discriminator().to(device)
+        discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=1e-4, betas=(.5, .9))
+    
     print('Training model')
     step = 0
     while step < args.steps:
         for x, y in dataloader:
-            optimizer.zero_grad()
             x1 = augment(x).to(device)
             x2 = augment(x).to(device)
-            z1 = model.project(x1)
-            z2 = model.project(x2)
+            z1, u1 = model.project(x1)
+            z2, u2 = model.project(x2)
+            u = torch.cat([u1, u2], dim=0)
             z = torch.cat([z1, z2], dim=0)
             if args.supervise > -1:
                 y = y[:, args.supervise]
             else:
                 y = torch.arange(z1.shape[0])
             y = torch.cat([y, y], dim=0)
-            pairs = miner(z, y)
+            pairs = miner(u, y)
             if args.use_miner:
-                loss = ntxent(z, y, pairs)
+                loss = ntxent(u, y, pairs)
             else:
-                loss = ntxent(z, y)
+                loss = ntxent(u, y)
+            
+            if args.tc > 0:
+                dz = discriminator(z)
+                tc = (dz[:, 0] - dz[:, 1]).mean()
+                loss += args.tc * tc
+            
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            
+            if args.tc > 0:
+                ones = torch.ones(z.shape[0], dtype=torch.long, device=device)
+                zeros = torch.zeros(z.shape[0], dtype=torch.long, device=device)
+                z = z.detach()
+                dz = discriminator(z)
+                zperm = utils.permute_latent(z)
+                dzperm = discriminator(zperm)
+                discriminator_loss = 0.5*(F.cross_entropy(dz, zeros) + F.cross_entropy(dzperm, ones))
+                discriminator_optimizer.zero_grad()
+                discriminator_loss.backward()
+                discriminator_optimizer.step()
             step += 1
             
             if step % args.log_interval == 0:
@@ -80,6 +106,8 @@ def train(args):
                 writer.add_scalar('Loss', loss.item(), global_step=step)
                 writer.add_scalar('Hard Positive Pairs', pairs[0].shape[0], global_step=step)
                 writer.add_scalar('Hard Negative Paris', pairs[2].shape[0], global_step=step)
+                if args.tc > 0:
+                    writer.add_scalar('TotalCorrelation', tc.item(), global_step=step)
                 writer.flush()
             
             if step >= args.steps: 
@@ -150,6 +178,9 @@ train_parser.add_argument('--steps',
 train_parser.add_argument('--use-miner',
                           action='store_true', default=False,
                           help='Enable using MultiSimilarityMiner')
+train_parser.add_argument('--tc',
+                          type=float, default=0.0,
+                          help='TotalCorrelation regularization strength (default: 0.0).')
 train_parser.add_argument('--supervise', 
                           type=int, default=-1,
                           help='Factor used for supervision (default: Unsupervised).')

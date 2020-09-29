@@ -1,5 +1,5 @@
 import torch
-from torch import nn
+import torch.nn as nn
 
 from ..nets.conv import Convnet
 from ..nets.mlp import MLP
@@ -25,4 +25,5 @@ class GaussianModel(nn.Module):
         return self.reparametrize(mean, logvar)
     
     def project(self, x):
-        return self.p(self(x))
+        z = self(x)
+        return z, self.p(z)

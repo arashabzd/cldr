@@ -1,5 +1,5 @@
 import torch
-from torch import nn
+import torch.nn as nn
 
 from ..nets.conv import Convnet
 from ..nets.mlp import MLP
@@ -18,4 +18,5 @@ class DeterministicModel(nn.Module):
         return self.r(x)
     
     def project(self, x):
-        return self.p(self.r(x))
+        z = self(x)
+        return z, self.p(z)
