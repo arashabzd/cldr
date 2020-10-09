@@ -18,8 +18,9 @@ class GaussianModel(nn.Module):
         return dist.rsample()
     
     def project(self, x):
-        z = self(x)
-        return z, self.p(z)
+        dist = self.get_dist(x)
+        z = dist.rsample()
+        return z, self.p(z), dist
 
     def get_dist(self, x):
         out = self.conv(x)

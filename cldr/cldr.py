@@ -60,7 +60,7 @@ def train(args):
             x1 = augment(x)
             x2 = augment(x)
             x = torch.cat([x1, x2], dim=0).to(device)
-            z, u = model.project(x)
+            z, u, dist = model.project(x)
             if args.supervise > -1:
                 y = y[:, args.supervise]
             else:
@@ -72,6 +72,9 @@ def train(args):
             else:
                 loss = ntxent(u, y)
             
+            if args.entropy > 0 :
+                entropy = dist.entropy().sum(dim=1).mean()
+                loss += args.entropy * -entropy
             if args.tc > 0:
                 dz = discriminator(z)
                 tc = (dz[:, 0] - dz[:, 1]).mean()
@@ -95,13 +98,15 @@ def train(args):
             step += 1
             
             if step % args.log_interval == 0:
-                print('Iteration {}: loss={}'.format(step,loss.item()))
+                print('Iteration {}: loss={}'.format(step, loss.item()))
                 writer.add_scalar('Loss', loss.item(), global_step=step)
                 if args.use_miner:
                     writer.add_scalar('Hard Positive Pairs', pairs[0].shape[0], global_step=step)
                     writer.add_scalar('Hard Negative Paris', pairs[2].shape[0], global_step=step)
                 if args.tc > 0:
                     writer.add_scalar('TotalCorrelation', tc.item(), global_step=step)
+                if args.entropy > 0:
+                    writer.add_scalar('Entropy', entropy.item(), global_step=step)
                 writer.flush()
                 
             if step >= args.steps: 
@@ -175,6 +180,9 @@ train_parser.add_argument('--use-miner',
 train_parser.add_argument('--tc',
                           type=float, default=0.0,
                           help='TotalCorrelation regularization strength (default: 0.0).')
+train_parser.add_argument('--entropy',
+                          type=float, default=0.0,
+                          help='Entropy regularization strength (default: 0.0).')
 train_parser.add_argument('--supervise', 
                           type=int, default=-1,
                           help='Factor used for supervision (default: Unsupervised).')

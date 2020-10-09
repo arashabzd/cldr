@@ -19,4 +19,4 @@ class DeterministicModel(nn.Module):
     
     def project(self, x):
         z = self(x)
-        return z, self.p(z)
+        return z, self.p(z), None
