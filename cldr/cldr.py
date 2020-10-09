@@ -44,7 +44,7 @@ def train(args):
         model = GaussianModel().to(device)
     model.train()
     
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = optim.Adam(model.parameters(), lr=1e-4)
     distance = distances.CosineSimilarity()
     miner = miners.MultiSimilarityMiner(epsilon=.1, distance=distance)
     ntxent = losses.NTXentLoss(temperature=.5, distance=distance)
@@ -57,19 +57,17 @@ def train(args):
     step = 0
     while step < args.steps:
         for x, y in dataloader:
-            x1 = augment(x).to(device)
-            x2 = augment(x).to(device)
-            z1, u1 = model.project(x1)
-            z2, u2 = model.project(x2)
-            u = torch.cat([u1, u2], dim=0)
-            z = torch.cat([z1, z2], dim=0)
+            x1 = augment(x)
+            x2 = augment(x)
+            x = torch.cat([x1, x2], dim=0).to(device)
+            z, u = model.project(x)
             if args.supervise > -1:
                 y = y[:, args.supervise]
             else:
-                y = torch.arange(z1.shape[0])
+                y = torch.arange(x1.shape[0])
             y = torch.cat([y, y], dim=0)
-            pairs = miner(u, y)
             if args.use_miner:
+                pairs = miner(u, y)
                 loss = ntxent(u, y, pairs)
             else:
                 loss = ntxent(u, y)
@@ -97,19 +95,15 @@ def train(args):
             step += 1
             
             if step % args.log_interval == 0:
-                print('Iteration {}: n_pos = {}, n_neg = {}, loss={}'.format(
-                step,
-                pairs[0].shape[0],
-                pairs[2].shape[0],
-                loss.item()
-                ))
+                print('Iteration {}: loss={}'.format(step,loss.item()))
                 writer.add_scalar('Loss', loss.item(), global_step=step)
-                writer.add_scalar('Hard Positive Pairs', pairs[0].shape[0], global_step=step)
-                writer.add_scalar('Hard Negative Paris', pairs[2].shape[0], global_step=step)
+                if args.use_miner:
+                    writer.add_scalar('Hard Positive Pairs', pairs[0].shape[0], global_step=step)
+                    writer.add_scalar('Hard Negative Paris', pairs[2].shape[0], global_step=step)
                 if args.tc > 0:
                     writer.add_scalar('TotalCorrelation', tc.item(), global_step=step)
                 writer.flush()
-            
+                
             if step >= args.steps: 
                 break
     
@@ -147,11 +141,11 @@ parser = argparse.ArgumentParser(
     description='Contrastive Learning of Disentangled Representations (CLDR)'
 )
 parser.add_argument('--experiment', 
-                    type=str, default='default', 
-                    help='Experiment name (default: "default").')
+                    type=str, default='debug', 
+                    help='Experiment name (default: "debug").')
 parser.add_argument('--model', 
-                    type=str, default='deterministic', 
-                    help='Model name (default: "deterministic").')
+                    type=str, default='gaussian', 
+                    help='Model name (default: "gaussian").')
 parser.add_argument('--dataset', 
                     type=str, default='cars3d', 
                     help='Dataset name (default: "cars3d").')
@@ -173,8 +167,8 @@ train_parser.add_argument('--batch-size',
                           type=int, default=64, 
                           help='Batch size (default: 64).')
 train_parser.add_argument('--steps',  
-                          type=int, default=100000, 
-                          help='Number of training steps (iterations) (default: 100000).')
+                          type=int, default=300000, 
+                          help='Number of training steps (iterations) (default: 300000).')
 train_parser.add_argument('--use-miner',
                           action='store_true', default=False,
                           help='Enable using MultiSimilarityMiner')
