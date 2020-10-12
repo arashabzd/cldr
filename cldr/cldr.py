@@ -44,7 +44,7 @@ def train(args):
         model = GaussianModel().to(device)
     model.train()
     
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
     distance = distances.CosineSimilarity()
     miner = miners.MultiSimilarityMiner(epsilon=.1, distance=distance)
     ntxent = losses.NTXentLoss(temperature=.5, distance=distance)
@@ -172,8 +172,11 @@ train_parser.add_argument('--batch-size',
                           type=int, default=64, 
                           help='Batch size (default: 64).')
 train_parser.add_argument('--steps',  
-                          type=int, default=300000, 
-                          help='Number of training steps (iterations) (default: 300000).')
+                          type=int, default=100000, 
+                          help='Number of training steps (iterations) (default: 100000).')
+train_parser.add_argument('--lr',
+                          type=float, default=0.001,
+                          help='Learning rate (default: 0.001).')
 train_parser.add_argument('--use-miner',
                           action='store_true', default=False,
                           help='Enable using MultiSimilarityMiner')
@@ -185,10 +188,10 @@ train_parser.add_argument('--entropy',
                           help='Entropy regularization strength (default: 0.0).')
 train_parser.add_argument('--supervise', 
                           type=int, default=-1,
-                          help='Factor used for supervision (default: Unsupervised).')
+                          help='Index of factor used for supervision (default: -1).')
 train_parser.add_argument('--log-interval', 
-                          type=int, default=1,
-                          help='Tensorboard log interval (default: 1).')
+                          type=int, default=10,
+                          help='Tensorboard log interval (default: 10).')
 train_parser.set_defaults(func=train)
 
 eval_parser = subparsers.add_parser(
