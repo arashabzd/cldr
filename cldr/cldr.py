@@ -1,5 +1,6 @@
 import argparse
 import pathlib
+import random
 import numpy as np
 
 import torch
@@ -229,6 +230,7 @@ if __name__ == '__main__':
     evaluation_dir = str(evaluation_dir)
     model_path = str(model_dir/'model.pt')
     
+    random.seed(args.seed)
     torch.manual_seed(args.seed)
     device = torch.device("cuda" if args.cuda else "cpu")
     writer = SummaryWriter(log_dir=log_dir)
