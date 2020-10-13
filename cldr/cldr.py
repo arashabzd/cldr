@@ -25,14 +25,11 @@ def train(args):
     jitter = .5
     color_jitter = transforms.ColorJitter(.8*jitter, .8*jitter, .8*jitter, .2*jitter)
     rnd_color_jitter = transforms.RandomApply([color_jitter], p=0.8)
-    rnd_gray = transforms.RandomGrayscale(p=0.2)
     augment = transforms.Compose(
         [
             transforms.ToPILImage(), 
             rnd_color_jitter, 
-            rnd_gray,
             transforms.RandomResizedCrop(64), 
-            transforms.RandomHorizontalFlip(),
             transforms.ToTensor()
         ]
     )
