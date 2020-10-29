@@ -7,7 +7,7 @@ class MLP(nn.Module):
     def __init__(self, in_features, hidden_features, out_features, 
                  activation=nn.ReLU, 
                  bn=False,
-                 init_mode='kaiming'):
+                 init_mode=None):
         super().__init__()
         features = [in_features] + hidden_features
         layers = []
@@ -19,7 +19,8 @@ class MLP(nn.Module):
         layers.append(nn.Linear(features[-1], out_features))
         self.mlp = nn.Sequential(*layers)
         
-        self.weight_init(init_mode)
+        if init_mode is not None:
+            self.weight_init(init_mode)
         
     def weight_init(self, mode='normal'):
         if mode == 'kaiming':

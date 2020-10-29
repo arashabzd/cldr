@@ -4,7 +4,7 @@ from .utils import kaiming_init, normal_init
 
 
 class Convnet(nn.Module):
-    def __init__(self, bn=False, init_mode='kaiming'):
+    def __init__(self, bn=False, init_mode=None):
         super().__init__()
         self.net = nn.Sequential(
             nn.Conv2d(3, 32, 4, 2, 1, bias=not bn),
@@ -27,8 +27,8 @@ class Convnet(nn.Module):
             nn.BatchNorm1d(256) if bn else nn.Identity(),
             nn.ReLU(True)
         )
-        
-        self.weight_init(init_mode)
+        if init_mode is not None:
+            self.weight_init(init_mode)
     
     def weight_init(self, mode='normal'):
         if mode == 'kaiming':

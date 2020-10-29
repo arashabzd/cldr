@@ -6,17 +6,20 @@ from ..nets.mlp import MLP
 
 
 class DeterministicModel(nn.Module):
-    def __init__(self):
+    def __init__(self, bn=False, init_mode='kaiming'):
         super().__init__()
-        self.r = nn.Sequential(
-            Convnet(),
-            nn.Linear(256, 10)
-        )
-        self.p = MLP(10, [10], 10)
+        self.conv = Convnet(bn=bn, init_mode=init_mode)
+        self.mean = nn.Linear(256, 10)
+        self.head = MLP(10, [10], 10, bn=bn, init_mode=init_mode)
     
     def forward(self, x):
-        return self.r(x)
+        return self.mean(self.conv(x))
     
     def project(self, x):
-        z = self(x)
-        return z, self.p(z), None
+        out = self.conv(x)
+        mean = self.mean(out)
+        std = torch.zeros_like(mean)
+        dist = torch.distributions.Normal(mean, std)
+        z = dist.rsample()
+        u = self.head(z)
+        return [z, u, dist]

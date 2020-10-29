@@ -1,4 +1,5 @@
 import os
+import h5py
 from pathlib import Path
 from copy import deepcopy
 
@@ -197,3 +198,19 @@ class BatchTransform:
 
     def __call__(self, x):
         return torch.stack([self.transform(xi) for xi in x])
+
+    
+def extract_h5(h5_path, base_path='./data/Shapes3D', N=10000):
+    h5 = h5py.File(h5_path, 'r')
+    Path(base_path + '/images').mkdir(parents=True, exist_ok=True)
+    Path(base_path + '/factors').mkdir(parents=True, exist_ok=True)
+    images_path = Path(base_path + '/images')
+    factors_path = Path(base_path +'/factors')
+    images = h5['images']
+    factors = h5['labels']
+    for i in range(images.len()//N):
+        img = images[i*N:(i+1)*N]
+        fac = factors[i*N:(i+1)*N]
+        for j in range(N):
+            np.save(images_path/'{}.npy'.format(i*N+j), img[j])
+            np.save(factors_path/'{}.npy'.format(i*N+j), fac[j])
