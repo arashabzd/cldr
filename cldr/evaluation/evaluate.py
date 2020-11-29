@@ -24,7 +24,7 @@ import numpy as np
 import tensorflow as tf
 import gin.tf
 
-from ..utils import utils
+from .. import utils
 from tensorflow.python.framework.errors_impl import NotFoundError
 
 

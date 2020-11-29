@@ -1,139 +1,95 @@
 import random
 import pathlib
 import argparse
-
 import numpy as np
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-import torchvision.transforms as TF
 
 from torch.utils.tensorboard import SummaryWriter
-from pytorch_metric_learning import distances, miners, losses
 
-from .models import DeterministicModel
-from .models import GaussianModel
-from .models import Discriminator
+from .model import MultiHeadAE
+from .loss import TripletMarginLoss, SWD
+from .augment import FactorwiseAugmentation, dsprites_transforms
 from .evaluation import compute_metrics
-from .utils import utils
+from . import utils
+
 
 
 def train(args):
-    print(f'Loading dataset: {args.dataset}')
-    dataloader = utils.get_loader(args.dataset, 
-                                  batch_size=args.batch_size, 
-                                  seed=args.seed, 
-                                  drop_last=True)
+    dataloader = utils.get_loader(
+        args.dataset, 
+        batch_size=args.batch_size, 
+        seed=args.seed, 
+        drop_last=True)
     
-    color_jitter = TF.ColorJitter(.8*args.jitter, 
-                                  .8*args.jitter, 
-                                  .8*args.jitter, 
-                                  .2*args.jitter)
-    augment = TF.Compose(
-        [
-            TF.ToPILImage(), 
-            TF.RandomApply([color_jitter], p=0.8), 
-            TF.RandomResizedCrop(64, scale=(.5, 1)), 
-            TF.ToTensor()
-        ]
-    )
-    augment = utils.BatchTransform(augment)
+    if args.dataset == 'dsprites_full':
+        transforms = dsprites_transforms
+    augment = FactorwiseAugmentation(transforms)
     
-    print(f'Initializing model: {args.model}')
-    if args.model == 'deterministic':
-        model = DeterministicModel(bn=args.bn).to(device)
-    elif args.model == 'gaussian':
-        model = GaussianModel(bn=args.bn).to(device)
+    if args.activation == 'relu':
+        activation = nn.ReLU
+    
+    if args.model == 'autoencoder':
+        model = MultiHeadAE(args.nf, 
+                            args.dpf, 
+                            args.head_layers,
+                            args.decoder, 
+                            activation, 
+                            args.bn, 
+                            args.init_mode).to(device)
     model.train()
     
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.decay)
-    miner = miners.MultiSimilarityMiner(epsilon=args.eps)
-    ntxent = losses.NTXentLoss(temperature=args.temp)
+    optimizer = optim.Adam(
+        model.parameters(), 
+        lr=args.lr, 
+        weight_decay=args.decay)
     
-    if args.tc > 0:
-        discriminator = Discriminator().to(device)
-        discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=1e-4, betas=(.5, .9))
+    alignment = TripletMarginLoss(args.nf, args.dpf)
+    distribution = SWD(sampler=lambda z: torch.randn_like(z))
     
-    print('Training model:')
     step = 0
     while step < args.steps:
-        for x, y in dataloader:
-            x1 = augment(x)
-            x2 = augment(x)
-            x = torch.cat([x1, x2], dim=0).to(device)
-            z, u, dist = model.project(x)
+        for x1, y1 in dataloader:
+            x2, f = augment(x1)
+            y = torch.arange(x1.shape[0])
             
-            if args.supervise > -1:
-                y = y[:, args.supervise]
+            x = torch.cat([x1, x2]).to(device)
+            f = torch.cat([f, f]).to(device)
+            y = torch.cat([y, y]).to(device)
+            
+            x, z, xr = model.autoencode(x)
+            
+            if xr is not None:
+                recons_loss = F.binary_cross_entropy(xr, x)
             else:
-                y = torch.arange(x1.shape[0])
-            y = torch.cat([y, y], dim=0).to(device)
+                recons_loss = torch.zeros(1).to(device)
             
-            pairs = miner(u, y)
-            a1, p, a2, n = pairs
+            align_loss = alignment(z, y, f)
             
-            contrastive_loss = ntxent(u, y, pairs)
-            loss = contrastive_loss
+            dist_loss = distribution(z)
             
-            entropy = dist.entropy().sum(dim=1).mean()
-            if args.entropy > 0 :
-                loss += args.entropy * -entropy
-
-            p_pos = torch.distributions.Normal(dist.mean[a1], dist.stddev[a1])
-            q_pos = torch.distributions.Normal(dist.mean[p], dist.stddev[p])
-            kl_pos = torch.distributions.kl_divergence(p_pos, q_pos).sum(dim=1).mean()
-            
-            p_neg = torch.distributions.Normal(dist.mean[a2], dist.stddev[a2])
-            q_neg = torch.distributions.Normal(dist.mean[n], dist.stddev[n])
-            kl_neg = torch.distributions.kl_divergence(p_neg, q_neg).sum(dim=1).mean()
-            
-            kl = (kl_pos - 0.0001 * kl_neg)
-            kl = kl_pos
-            if args.kl > 0:
-                loss += args.kl * kl
-                
-            if args.tc > 0:
-                dz = discriminator(z)
-                tc = (dz[:, 0] - dz[:, 1]).mean()
-                loss += args.tc * tc
+            loss = args.alpha*recons_loss + args.beta*dist_loss + args.gamma*align_loss
             
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             
-            if args.tc > 0:
-                ones = torch.ones(z.shape[0], dtype=torch.long, device=device)
-                zeros = torch.zeros(z.shape[0], dtype=torch.long, device=device)
-                dz = discriminator(z.detach())
-                zperm = utils.permute_latent(z.detach())
-                dzperm = discriminator(zperm)
-                discriminator_loss = 0.5*(F.cross_entropy(dz, zeros) + F.cross_entropy(dzperm, ones))
-                discriminator_optimizer.zero_grad()
-                discriminator_loss.backward()
-                discriminator_optimizer.step()
-            
             step += 1
             
             if step % args.log_interval == 0:
                 print('Iteration {}: loss={}'.format(step, loss.item()))
-                
-                writer.add_scalar('Pairs/Positive', a1.shape[0], global_step=step)
-                writer.add_scalar('Pairs/Negative', a2.shape[0], global_step=step)
-                writer.add_scalar('Loss/Contrastive', contrastive_loss.item(), global_step=step)
-                writer.add_scalar('Loss/Entropy', entropy.item(), global_step=step)
                 writer.add_scalar('Loss/Total', loss.item(), global_step=step)
-                writer.add_scalar('KL-Divergence/Positive', kl_pos.item(), global_step=step)
-                writer.add_scalar('KL-Divergence/Negative', kl_neg.item(), global_step=step)
-                
-                if args.tc > 0:
-                    writer.add_scalar('TotalCorrelation', tc.item(), global_step=step)
+                writer.add_scalar('Loss/Reconstuction', recons_loss.item(), global_step=step)
+                writer.add_scalar('Loss/Distribution', dist_loss.item(), global_step=step)
+                writer.add_scalar('Loss/Alignment', align_loss.item(), global_step=step)
                 writer.flush()
                 
             if step >= args.steps: 
                 break
     
-    print('Exporting model')
     utils.export_model(model, model_path)
 
 
@@ -164,20 +120,22 @@ def visualize(args):
 
 
 parser = argparse.ArgumentParser(
-    description='Contrastive Learning of Disentangled Representations (CLDR)'
+    description='(CLDR)'
 )
+
+# general parameters
 parser.add_argument('--config', 
-                    type=str, default='', 
-                    help='Config file (default: "").')
+                    type=str, default=None, 
+                    help='Config file (default: None).')
 parser.add_argument('--experiment', 
                     type=str, default='debug', 
                     help='Experiment name (default: "debug").')
 parser.add_argument('--model', 
-                    type=str, default='gaussian', 
-                    help='Model name (default: "gaussian").')
+                    type=str, default='autoencoder', 
+                    help='Model name (default: "autoencoder").')
 parser.add_argument('--dataset', 
-                    type=str, default='cars3d', 
-                    help='Dataset name (default: "cars3d").')
+                    type=str, default='dsprites_full', 
+                    help='Dataset name (default: "dsprites_full").')
 parser.add_argument('--seed', 
                     type=int, default=0,
                     help='Random seed (default: 0).')
@@ -192,12 +150,29 @@ train_parser = subparsers.add_parser(
     'train',
     help='Train a model.'
 )
+# model parameters
+train_parser.add_argument('--nf',  
+                          type=int, default=5, 
+                          help='Number of factors (default: 5).')
+train_parser.add_argument('--dpf',  
+                          type=int, default=2, 
+                          help='Dimension per factor (default: 2).')
+train_parser.add_argument('--head-layers',  default=[],
+                          type=int, nargs='+', 
+                          help='Head hidden layers as a list of ints (default: []).')
+train_parser.add_argument('--decoder',
+                          action='store_true', default=False,
+                          help='Use decoder for reconstruction loss.')
+train_parser.add_argument('--activation', 
+                          type=str, default='relu', 
+                          help='Activation function (default: "relu").')
 train_parser.add_argument('--bn',
                           action='store_true', default=False,
-                          help='Enable Batch Normalization.')
-train_parser.add_argument('--jitter',
-                          type=float, default=0.5,
-                          help='Color jitter (default: 0.5).')
+                          help='Use batch normalization.')
+train_parser.add_argument('--init-mode', 
+                          type=str, default=None, 
+                          help='Weight initialization (default: None).')
+# training parameters
 train_parser.add_argument('--batch-size',  
                           type=int, default=64, 
                           help='Batch size (default: 64).')
@@ -205,29 +180,22 @@ train_parser.add_argument('--steps',
                           type=int, default=100000, 
                           help='Number of training steps (iterations) (default: 100000).')
 train_parser.add_argument('--lr',
-                          type=float, default=0.0005,
-                          help='Learning rate (default: 0.0005).')
+                          type=float, default=0.001,
+                          help='Learning rate (default: 0.001).')
 train_parser.add_argument('--decay',
                           type=float, default=0.0,
                           help='Weight decay (default: 0.0).')
-train_parser.add_argument('--eps',
-                          type=float, default=0.1,
-                          help='Epsilon parameter of MultiSimilarityMiner (default: 0.1).')
-train_parser.add_argument('--temp',
-                          type=float, default=0.07,
-                          help='Temperature parameter (default: 0.07).')
-train_parser.add_argument('--entropy',
-                          type=float, default=0.0,
-                          help='Entropy regularization strength (default: 0.0).')
-train_parser.add_argument('--kl',
-                          type=float, default=0.0,
-                          help='KL-Divergence regularization strength (default: 0.0).')
-train_parser.add_argument('--tc',
-                          type=float, default=0.0,
-                          help='TotalCorrelation regularization strength (default: 0.0).')
-train_parser.add_argument('--supervise', 
-                          type=int, default=-1,
-                          help='Index of factor used for supervision (default: -1).')
+# loss function parameters
+train_parser.add_argument('--alpha',
+                          type=float, default=1.0,
+                          help='Alpha parameter (default: 1.0).')
+train_parser.add_argument('--beta',
+                          type=float, default=1.0,
+                          help='Beta parameter (default: 1.0).')
+train_parser.add_argument('--gamma',
+                          type=float, default=1.0,
+                          help='Gamma parameter (default: 1.0).')
+# other
 train_parser.add_argument('--log-interval', 
                           type=int, default=10,
                           help='Tensorboard log interval (default: 10).')
@@ -256,11 +224,10 @@ vis_parser.set_defaults(func=visualize)
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    if args.config != '':
+    if args.config:
         with open(args.config) as config_file:
-            runs = config_file.readlines()
-        for run in runs:
-            config = run.split()
+            configs = [line.split() for line in config_file.read().splitlines() if line]
+        for config in configs:
             args = parser.parse_args(config)
             result_dir = pathlib.Path('./results/')/args.experiment/args.model/args.dataset
             log_dir = result_dir/'log'
@@ -275,7 +242,12 @@ if __name__ == '__main__':
             model_path = str(model_dir/'model.pt')
 
             random.seed(args.seed)
+            np.random.seed(args.seed)
             torch.manual_seed(args.seed)
+            torch.cuda.manual_seed(args.seed)
+            torch.backends.cudnn.benchmark = False
+#             torch.set_deterministic(True)
+            
             device = torch.device("cuda" if args.cuda else "cpu")
             writer = SummaryWriter(log_dir=log_dir)
             
@@ -294,7 +266,12 @@ if __name__ == '__main__':
         model_path = str(model_dir/'model.pt')
 
         random.seed(args.seed)
+        np.random.seed(args.seed)
         torch.manual_seed(args.seed)
+        torch.cuda.manual_seed(args.seed)
+        torch.backends.cudnn.benchmark = False
+#         torch.set_deterministic(True)
+        
         device = torch.device("cuda" if args.cuda else "cpu")
         writer = SummaryWriter(log_dir=log_dir)
 

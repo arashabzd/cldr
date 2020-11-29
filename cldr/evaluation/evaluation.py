@@ -25,15 +25,15 @@ def compute_metrics(model_path,
     
     if metrics is None:
         metrics = [
-            'beta_vae_sklearn',
             'dci',
+            'sap_score',
+            'irs',
             'downstream_task_boosted_trees',
             'downstream_task_logistic_regression',
+            'beta_vae_sklearn',
             'factor_vae_metric',
-            'irs',
             'mig',
             'modularity_explicitness',
-            'sap_score',    
             'unsupervised'
         ]
     

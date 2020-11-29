@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+
 from .utils import kaiming_init, normal_init
 
 
@@ -22,10 +23,10 @@ class MLP(nn.Module):
         if init_mode is not None:
             self.weight_init(init_mode)
         
-    def weight_init(self, mode='normal'):
-        if mode == 'kaiming':
+    def weight_init(self, init_mode):
+        if init_mode == 'kaiming':
             initializer = kaiming_init
-        elif mode == 'normal':
+        elif init_mode == 'normal':
             initializer = normal_init
 
         for block in self._modules:

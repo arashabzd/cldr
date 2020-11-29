@@ -191,14 +191,6 @@ def permute_latent(z):
     B, D = z.size()
     inds = torch.cat([(D*i) + torch.randperm(D) for i in range(B)])
     return z.view(-1)[inds].view(B, D)
-
-class BatchTransform:
-    def __init__(self, transform):
-        self.transform = transform
-
-    def __call__(self, x):
-        return torch.stack([self.transform(xi) for xi in x])
-
     
 def extract_h5(h5_path, base_path='./data/Shapes3D', N=10000):
     h5 = h5py.File(h5_path, 'r')
